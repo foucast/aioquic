@@ -122,15 +122,20 @@ class CryptoContext:
     def setup(self, *, cipher_suite: CipherSuite, secret: bytes, version: int) -> None:
         hp_cipher_name, aead_cipher_name = CIPHER_SUITES[cipher_suite]
 
-        logging.debug("in setup function for CryptoContext")
 
         key, iv, hp = derive_key_iv_hp(
             cipher_suite=cipher_suite,
             secret=secret,
             version=version,
         )
+        logging.debug(f"in setup function for CryptoContext key {list(key)} iv {list(iv)} hp {list(hp)}")
+
+        self.key = key
+        self.iv = iv
+        self.hp_raw = hp
+
         self.aead = AEAD(aead_cipher_name, key, iv)
-        self.cipher_suite = cipher_suite
+        self.cigher_suite = cipher_suite
         self.hp = HeaderProtection(hp_cipher_name, hp)
         self.secret = secret
         self.version = version
@@ -183,6 +188,12 @@ class CryptoPair:
         self.recv = CryptoContext(setup_cb=recv_setup_cb, teardown_cb=recv_teardown_cb)
         self.send = CryptoContext(setup_cb=send_setup_cb, teardown_cb=send_teardown_cb)
         self._update_key_requested = False
+
+    def send_keys(self):
+        return (self.send.key, self.send.hp_raw, self.send.iv)
+
+    def recv_keys(self):
+        return (self.recv.key, self.recv.hp_raw, self.recv.iv)
 
     def decrypt_packet(
         self, packet: bytes, encrypted_offset: int, expected_packet_number: int

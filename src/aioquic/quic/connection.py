@@ -1541,6 +1541,14 @@ class QuicConnection:
         }
         self._loss.spaces = list(self._spaces.values())
 
+
+    def send_keys(self):
+        return self._cryptos[tls.Epoch.ONE_RTT].send_keys()
+
+    def recv_keys(self):
+        return self._cryptos[tls.Epoch.ONE_RTT].recv_keys()
+
+
     def _handle_ack_frame(
         self, context: QuicReceiveContext, frame_type: int, buf: Buffer
     ) -> None:
