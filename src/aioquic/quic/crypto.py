@@ -1,4 +1,5 @@
 import binascii
+import logging
 from typing import Callable, Optional
 
 from .._crypto import AEAD, CryptoError, HeaderProtection
@@ -120,6 +121,8 @@ class CryptoContext:
 
     def setup(self, *, cipher_suite: CipherSuite, secret: bytes, version: int) -> None:
         hp_cipher_name, aead_cipher_name = CIPHER_SUITES[cipher_suite]
+
+        logging.debug("in setup function for CryptoContext")
 
         key, iv, hp = derive_key_iv_hp(
             cipher_suite=cipher_suite,
