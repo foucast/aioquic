@@ -40,6 +40,8 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
         return self._quic.recv_keys()
     def send_keys(self):
         return self._quic.send_keys()
+    def packet_number(self):
+        return self._quic.packet_number()
 
     def change_connection_id(self) -> None:
         """

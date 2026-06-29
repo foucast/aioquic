@@ -135,7 +135,7 @@ class CryptoContext:
         self.hp_raw = hp
 
         self.aead = AEAD(aead_cipher_name, key, iv)
-        self.cigher_suite = cipher_suite
+        self.cipher_suite = cipher_suite
         self.hp = HeaderProtection(hp_cipher_name, hp)
         self.secret = secret
         self.version = version
@@ -190,10 +190,10 @@ class CryptoPair:
         self._update_key_requested = False
 
     def send_keys(self):
-        return (self.send.key, self.send.hp_raw, self.send.iv)
+        return (self.send.key, self.send.hp_raw, self.send.iv, self.send.cipher_suite)
 
     def recv_keys(self):
-        return (self.recv.key, self.recv.hp_raw, self.recv.iv)
+        return (self.recv.key, self.recv.hp_raw, self.recv.iv, self.recv.cipher_suite)
 
     def decrypt_packet(
         self, packet: bytes, encrypted_offset: int, expected_packet_number: int

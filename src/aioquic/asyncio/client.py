@@ -23,6 +23,7 @@ async def connect(
     token_handler: Optional[QuicTokenHandler] = None,
     wait_connected: bool = True,
     local_port: int = 0,
+    local_host: str = "::",
 ) -> AsyncGenerator[QuicConnectionProtocol, None]:
     """
     Connect to a QUIC server at the given `host` and `port`.
@@ -50,15 +51,22 @@ async def connect(
       you can set it to `False` if you want to immediately start sending data using
       0-RTT.
     * ``local_port`` is the UDP port number that this client wants to bind.
+    * ``local_host`` is the local IP address that this client wants to bind.
+      This is useful when running a client and server on the same host and
+      an explicit local address is needed instead of the wildcard address.
     """
     loop = asyncio.get_running_loop()
-    local_host = "::"
 
     # lookup remote address
     infos = await loop.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
     addr = infos[0][4]
     if len(addr) == 2:
         addr = ("::ffff:" + addr[0], addr[1], 0, 0)
+
+    local_infos = await loop.getaddrinfo(local_host, 0, type=socket.SOCK_DGRAM)
+    local_addr = local_infos[0][4]
+    if len(local_addr) == 2:
+        local_addr = ("::ffff:" + local_addr[0], local_addr[1], 0, 0)
 
     # prepare QUIC connection
     if configuration is None:
@@ -76,7 +84,7 @@ async def connect(
     completed = False
     try:
         sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        sock.bind((local_host, local_port, 0, 0))
+        sock.bind(local_addr)
         completed = True
     finally:
         if not completed:

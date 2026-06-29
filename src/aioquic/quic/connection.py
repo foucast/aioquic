@@ -1548,6 +1548,8 @@ class QuicConnection:
     def recv_keys(self):
         return self._cryptos[tls.Epoch.ONE_RTT].recv_keys()
 
+    def packet_number(self):
+        return self._packet_number
 
     def _handle_ack_frame(
         self, context: QuicReceiveContext, frame_type: int, buf: Buffer
