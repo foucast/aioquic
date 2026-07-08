@@ -406,6 +406,12 @@ class HighLevelTest(TestCase):
             await self.run_client(local_port=-1, port=self.bogus_port)
 
     @asynctest
+    async def test_connect_local_host(self) -> None:
+        async with self.run_server() as server_port:
+            response = await self.run_client(local_host="127.0.0.1", port=server_port)
+            self.assertEqual(response, b"gnip")
+
+    @asynctest
     async def test_change_connection_id(self) -> None:
         async with self.run_server() as server_port:
             configuration = QuicConfiguration(is_client=True)
