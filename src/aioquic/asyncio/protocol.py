@@ -43,6 +43,26 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
     def packet_number(self):
         return self._quic.packet_number()
 
+    def reserve_packet_number(self) -> int:
+        return self._quic.reserve_packet_number()
+
+    def register_sent_packet(
+        self,
+        *,
+        packet_number: int,
+        sent_bytes: int,
+        now: Optional[float] = None,
+        is_ack_eliciting: bool = True,
+    ) -> None:
+        if now is None:
+            now = self._loop.time()
+        self._quic.register_sent_packet(
+            packet_number=packet_number,
+            sent_bytes=sent_bytes,
+            now=now,
+            is_ack_eliciting=is_ack_eliciting,
+        )
+
     def change_connection_id(self) -> None:
         """
         Change the connection ID used to communicate with the peer.

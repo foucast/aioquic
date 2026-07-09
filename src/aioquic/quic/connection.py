@@ -51,7 +51,12 @@ from .packet import (
     push_ack_frame,
     push_quic_transport_parameters,
 )
-from .packet_builder import QuicDeliveryState, QuicPacketBuilder, QuicPacketBuilderStop
+from .packet_builder import (
+    QuicDeliveryState,
+    QuicPacketBuilder,
+    QuicPacketBuilderStop,
+    QuicSentPacket,
+)
 from .recovery import QuicPacketRecovery, QuicPacketSpace
 from .stream import FinalSizeError, QuicStream, StreamFinishedError
 
@@ -1550,6 +1555,73 @@ class QuicConnection:
 
     def packet_number(self):
         return self._packet_number
+
+    def reserve_packet_number(self) -> int:
+        """
+        Reserve and return the next packet number in the Application Data
+        (1-RTT) packet number space, without building or sending a packet
+        through the normal send path.
+
+        This is intended for callers that construct and transmit packets
+        via an external path (e.g. a hardware/kernel crypto offload) that
+        bypasses QuicConnection's own send pipeline entirely, but still
+        need packet numbers guaranteed not to collide with ones this
+        QuicConnection might allocate later on its own -- packet numbers
+        double as AEAD nonce material, so a collision is a cryptographic
+        bug, not just a protocol violation.
+
+        Pair every call to this with a corresponding call to
+        :meth:`register_sent_packet`, or this connection's view of what
+        has been acknowledged, its RTT estimate, and its congestion
+        window will all silently drift from reality.
+        """
+        packet_number = self._packet_number
+        self._packet_number += 1
+        return packet_number
+
+    def register_sent_packet(
+        self,
+        *,
+        packet_number: int,
+        sent_bytes: int,
+        now: float,
+        is_ack_eliciting: bool = True,
+    ) -> None:
+        """
+        Record a packet sent via an external path (e.g. a hardware/kernel
+        crypto offload) in this connection's loss-detection and
+        congestion-control bookkeeping, in the Application Data (1-RTT)
+        packet number space, so that:
+
+        * an ACK from the peer covering ``packet_number`` is matched
+          against something real, instead of silently doing nothing;
+        * the RTT estimate and idle/PTO timers stay accurate;
+        * the congestion window's bytes-in-flight accounting reflects
+          data this connection actually has outstanding.
+
+        ``packet_number`` should come from :meth:`reserve_packet_number`
+        on this same connection, taken immediately before the packet was
+        built, so no other sender (including this QuicConnection itself)
+        could have used it in between.
+
+        Unlike a packet sent through QuicConnection's own pipeline, a
+        packet registered this way carries no retransmission handler: if
+        loss detection later decides it was lost, QuicConnection has no
+        stream data to resend for it. The external sender remains
+        responsible for its own retransmission strategy.
+        """
+        space = self._spaces[tls.Epoch.ONE_RTT]
+        packet = QuicSentPacket(
+            epoch=tls.Epoch.ONE_RTT,
+            in_flight=True,
+            is_ack_eliciting=is_ack_eliciting,
+            is_crypto_packet=False,
+            packet_number=packet_number,
+            packet_type=QuicPacketType.ONE_RTT,
+            sent_bytes=sent_bytes,
+            sent_time=now,
+        )
+        self._loss.on_packet_sent(packet=packet, space=space)
 
     def _handle_ack_frame(
         self, context: QuicReceiveContext, frame_type: int, buf: Buffer
