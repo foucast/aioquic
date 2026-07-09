@@ -1,7 +1,7 @@
 import asyncio
 import socket
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator, Callable, Optional, cast
+from typing import AsyncGenerator, Callable, Optional, Tuple, Union, cast
 
 from ..quic.configuration import QuicConfiguration
 from ..quic.connection import QuicConnection, QuicTokenHandler
@@ -23,7 +23,8 @@ async def connect(
     token_handler: Optional[QuicTokenHandler] = None,
     wait_connected: bool = True,
     local_port: int = 0,
-    local_host: str = "::",
+    local_host: Optional[str] = None,
+    dual_stack: bool = socket.has_dualstack_ipv6(),
 ) -> AsyncGenerator[QuicConnectionProtocol, None]:
     """
     Connect to a QUIC server at the given `host` and `port`.
@@ -52,21 +53,16 @@ async def connect(
       0-RTT.
     * ``local_port`` is the UDP port number that this client wants to bind.
     * ``local_host`` is the local IP address that this client wants to bind.
-      This is useful when running a client and server on the same host and
-      an explicit local address is needed instead of the wildcard address.
+      This is useful for running a client and server on the same host, where
+      each needs to bind to a distinct address rather than the wildcard
+      address. Defaults to the wildcard address appropriate for the active
+      socket family (``::`` when dual-stack, ``0.0.0.0`` otherwise).
+    * ``dual_stack`` is a flag which enables or disables using IPv4/IPv6
+      dual-stack. The default value is platform specific and similar to
+      ``socket.has_dualstack_ipv6()``. Some platforms (e.g. OpenBSD) don't
+      support dual-stack sockets at all, in which case this should be `False`.
     """
     loop = asyncio.get_running_loop()
-
-    # lookup remote address
-    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_DGRAM)
-    addr = infos[0][4]
-    if len(addr) == 2:
-        addr = ("::ffff:" + addr[0], addr[1], 0, 0)
-
-    local_infos = await loop.getaddrinfo(local_host, 0, type=socket.SOCK_DGRAM)
-    local_addr = local_infos[0][4]
-    if len(local_addr) == 2:
-        local_addr = ("::ffff:" + local_addr[0], local_addr[1], 0, 0)
 
     # prepare QUIC connection
     if configuration is None:
@@ -79,16 +75,54 @@ async def connect(
         token_handler=token_handler,
     )
 
-    # explicitly enable IPv4/IPv6 dual stack
-    sock = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
+    # Use AI_ADDRCONFIG on platforms which don't support dual-stack
+    flags = 0
+    if not dual_stack:
+        flags = socket.AI_ADDRCONFIG
+
+    # lookup remote address
+    infos = await loop.getaddrinfo(host, port, type=socket.SOCK_DGRAM, flags=flags)
+
+    addr = infos[0][4]
+    # addr is 2-tuple for AF_INET and 4-tuple for AF_INET6
+    if dual_stack and len(addr) == 2:
+        addr = ("::ffff:" + addr[0], addr[1], 0, 0)
+        family = socket.AF_INET6
+    elif len(addr) == 2:
+        family = socket.AF_INET
+    elif len(addr) == 4:
+        family = socket.AF_INET6
+    else:
+        raise Exception("Unsupported response from getaddrinfo")
+
+    # resolve the local bind address, defaulting to the wildcard address
+    # appropriate for the socket family we ended up with above
+    if local_host is None:
+        local_host = "::" if family == socket.AF_INET6 else "0.0.0.0"
+
+    local_infos = await loop.getaddrinfo(
+        local_host, 0, type=socket.SOCK_DGRAM, flags=flags
+    )
+    local_tuple: Union[Tuple[str, int], Tuple[str, int, int, int]]
+    local_addr = local_infos[0][4]
+    if dual_stack and len(local_addr) == 2:
+        local_tuple = ("::ffff:" + local_addr[0], local_port, 0, 0)
+    elif len(local_addr) == 2:
+        local_tuple = (local_addr[0], local_port)
+    else:
+        local_tuple = (local_addr[0], local_port, 0, 0)
+
+    sock = socket.socket(family, socket.SOCK_DGRAM)
     completed = False
     try:
-        sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
-        sock.bind(local_addr)
+        if dual_stack and family == socket.AF_INET6:
+            sock.setsockopt(socket.IPPROTO_IPV6, socket.IPV6_V6ONLY, 0)
+        sock.bind(local_tuple)
         completed = True
     finally:
         if not completed:
             sock.close()
+
     # connect
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: create_protocol(connection, stream_handler=stream_handler),
