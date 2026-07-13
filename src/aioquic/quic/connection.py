@@ -1586,6 +1586,8 @@ class QuicConnection:
         sent_bytes: int,
         now: float,
         is_ack_eliciting: bool = True,
+        handler: Optional[Callable[..., None]] = None,
+        handler_args: Sequence[Any] = (),
     ) -> None:
         """
         Record a packet sent via an external path (e.g. a hardware/kernel
@@ -1605,10 +1607,23 @@ class QuicConnection:
         could have used it in between.
 
         Unlike a packet sent through QuicConnection's own pipeline, a
-        packet registered this way carries no retransmission handler: if
-        loss detection later decides it was lost, QuicConnection has no
-        stream data to resend for it. The external sender remains
-        responsible for its own retransmission strategy.
+        packet registered this way carries no retransmission handler by
+        default: if loss detection later decides it was lost,
+        QuicConnection has no stream data of its own to resend for it.
+
+        If ``handler`` is given, it is called as ``handler(state,
+        *handler_args)`` -- with ``state`` a :class:`QuicDeliveryState`,
+        either ``ACKED`` or ``LOST`` -- at the point this connection's own
+        loss-detection/ACK-processing logic resolves this packet number,
+        exactly as it would for a packet sent through the normal pipeline.
+        This is a pure notification: QuicConnection still performs no
+        retransmission of its own for externally-sent packets. The
+        external sender remains responsible for its own retransmission
+        strategy, including registering any retransmission it sends as a
+        new call to this method (with its own new packet number) so this
+        connection's congestion-control accounting reflects it -- a
+        retransmission is a real new send from the congestion
+        controller's point of view, not a side channel invisible to it.
         """
         space = self._spaces[tls.Epoch.ONE_RTT]
         packet = QuicSentPacket(
@@ -1620,6 +1635,7 @@ class QuicConnection:
             packet_type=QuicPacketType.ONE_RTT,
             sent_bytes=sent_bytes,
             sent_time=now,
+            delivery_handlers=[(handler, handler_args)] if handler is not None else [],
         )
         self._loss.on_packet_sent(packet=packet, space=space)
 

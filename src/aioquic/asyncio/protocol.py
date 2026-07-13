@@ -1,5 +1,5 @@
 import asyncio
-from typing import Any, Callable, Optional, Text, Union, cast
+from typing import Any, Callable, Optional, Sequence, Text, Union, cast
 
 from ..quic import events
 from ..quic.connection import NetworkAddress, QuicConnection
@@ -53,6 +53,8 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
         sent_bytes: int,
         now: Optional[float] = None,
         is_ack_eliciting: bool = True,
+        handler: Optional[Callable[..., None]] = None,
+        handler_args: Sequence[Any] = (),
     ) -> None:
         if now is None:
             now = self._loop.time()
@@ -61,6 +63,8 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
             sent_bytes=sent_bytes,
             now=now,
             is_ack_eliciting=is_ack_eliciting,
+            handler=handler,
+            handler_args=handler_args,
         )
 
     def change_connection_id(self) -> None:
