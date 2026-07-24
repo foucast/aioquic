@@ -1143,6 +1143,37 @@ class QuicConnection:
         stream = self._get_or_create_stream_for_send(stream_id)
         stream.sender.write(data, end_stream=end_stream)
 
+    def get_or_create_stream_for_external_send(self, stream_id: int) -> None:
+        """
+        Ensure this connection is aware that stream_id exists and may be
+        written to, WITHOUT queuing any data through this connection's
+        own send path.
+
+        Intended for a sender operating via an external path (e.g. a
+        hardware/kernel bypass send path, matching the same case
+        :meth:`register_sent_packet` exists for) that constructs and
+        transmits its own STREAM frames directly, bypassing
+        :meth:`send_stream_data` for the actual data transfer entirely.
+
+        Without this, a peer's later frame referencing stream_id (for
+        instance a routine MAX_STREAM_DATA flow-control update, which
+        RFC 9000 Section 4.1 requires a well-behaved receiver to send
+        once it has received enough data) is treated as an attempt to
+        open a new stream from the wrong end, since this connection has
+        no record it was ever created -- raising a STREAM_STATE_ERROR
+        connection error ("Wrong stream initiator") and tearing down the
+        connection, even though the stream itself has been working
+        correctly the whole time from the peer's point of view.
+
+        This method's only effect is creating the QuicStream entry via
+        the same internal path :meth:`send_stream_data` itself uses
+        (``_get_or_create_stream_for_send``) -- it does not write,
+        buffer, or schedule any data, and is safe to call more than once
+        for the same stream_id (a later call simply finds the
+        already-created stream and does nothing further).
+        """
+        self._get_or_create_stream_for_send(stream_id)
+
     def stop_stream(self, stream_id: int, error_code: int) -> None:
         """
         Request termination of the receiving part of a stream.

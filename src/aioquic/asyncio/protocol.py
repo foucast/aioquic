@@ -67,6 +67,9 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
             handler_args=handler_args,
         )
 
+    def get_or_create_stream_for_external_send(self, stream_id: int) -> None:
+        self._quic.get_or_create_stream_for_external_send(stream_id)
+
     def change_connection_id(self) -> None:
         """
         Change the connection ID used to communicate with the peer.
