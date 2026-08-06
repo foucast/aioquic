@@ -67,6 +67,27 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
             handler_args=handler_args,
         )
 
+    def get_next_available_stream_id(self, is_unidirectional: bool = False) -> int:
+        """
+        Return the next stream ID this endpoint may open, without opening
+        it.
+
+        The read-side partner of
+        :meth:`get_or_create_stream_for_external_send`. An external sender
+        needs both and in that order: allocate the id, then register it,
+        since it is the REGISTRATION that advances the counter this
+        returns. Only the register half was proxied here when it was
+        added, so a caller working through the protocol -- which is what
+        the asyncio API hands out -- could register a stream but not
+        allocate one.
+
+        This is a pure read: it does not create the stream, does not
+        advance any counter, and returns the same value until something
+        actually opens the stream.
+        """
+        return self._quic.get_next_available_stream_id(
+            is_unidirectional=is_unidirectional)
+
     def get_or_create_stream_for_external_send(self, stream_id: int) -> None:
         self._quic.get_or_create_stream_for_external_send(stream_id)
 
