@@ -1174,6 +1174,45 @@ class QuicConnection:
         """
         self._get_or_create_stream_for_send(stream_id)
 
+    def external_send_offset(self, stream_id: int) -> int:
+        """
+        Return the number of bytes this connection has written to
+        stream_id, i.e. the offset an external sender must continue from.
+
+        The read-side companion to
+        :meth:`get_or_create_stream_for_external_send`. An external sender
+        that shares a stream with this connection needs it: where the
+        connection stops writing is where the external path must start.
+
+        The case this exists for is a response whose headers travel
+        through this connection while its body is transmitted externally,
+        both on the same stream. Starting the external write anywhere but
+        this offset either overwrites what the connection already sent or
+        leaves a gap the peer can never fill -- and the second is silent,
+        since the peer simply buffers against the missing range and waits.
+
+        Returns the end of WRITTEN data, not the offset of the next frame
+        to be built. Those differ whenever data is queued but not yet
+        transmitted, so this is deliberately not
+        ``sender.next_offset``, which reports the latter and would be
+        wrong in the common case of calling immediately after a write.
+
+        The value is available synchronously: writing advances it
+        immediately, so there is no need to transmit or await anything
+        first.
+
+        Returns 0 for a stream this connection has never written to,
+        including one it has never heard of -- the answer to "where should
+        an external sender begin" is the same in both cases, and creating
+        a stream as a side effect of asking a question would be
+        surprising. Use
+        :meth:`get_or_create_stream_for_external_send` to create.
+        """
+        stream = self._streams.get(stream_id)
+        if stream is None or stream.sender is None:
+            return 0
+        return stream.sender._buffer_stop
+
     def stop_stream(self, stream_id: int, error_code: int) -> None:
         """
         Request termination of the receiving part of a stream.

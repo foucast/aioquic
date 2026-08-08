@@ -91,6 +91,19 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
     def get_or_create_stream_for_external_send(self, stream_id: int) -> None:
         self._quic.get_or_create_stream_for_external_send(stream_id)
 
+    def external_send_offset(self, stream_id: int) -> int:
+        """
+        Bytes written to stream_id by this connection -- where an external
+        sender must continue from.
+
+        Proxied because the asyncio API hands out the protocol rather than
+        the connection, and 22cb52b showed what happens when only half of
+        a pair is exposed here: callers could register a stream but not
+        allocate one, and the resulting AttributeError silently disabled
+        stream registration for months. See :meth:`QuicConnection.external_send_offset`.
+        """
+        return self._quic.external_send_offset(stream_id)
+
     def change_connection_id(self) -> None:
         """
         Change the connection ID used to communicate with the peer.
