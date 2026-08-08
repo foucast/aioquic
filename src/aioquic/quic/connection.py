@@ -1620,6 +1620,50 @@ class QuicConnection:
     def send_keys(self):
         return self._cryptos[tls.Epoch.ONE_RTT].send_keys()
 
+    def external_send_generation(self) -> tuple:
+        """
+        Opaque token covering every piece of connection state an external
+        sender depends on. Compare it against the value held when that
+        state was last read; a difference means re-read everything.
+
+        The problem this solves: an external sender reads key material,
+        the peer connection ID and the peer address, caches them, and
+        builds packets outside this connection. This connection goes on
+        managing all three -- rotating keys, retiring CIDs, migrating
+        paths -- with no idea anyone else depends on the old values. The
+        resulting packets are well formed and locally accounted for, and
+        the peer discards them. From the sender's side that is
+        indistinguishable from a network fault.
+
+        DERIVED, not incremented. A counter bumped at each mutation site
+        works only if every site remembers, and forgetting is invisible.
+        Computing the token from the state it covers cannot be forgotten
+        at mutation time: the only way to get it wrong is to leave a field
+        out of this function, which is one line in one place rather than a
+        search across the codebase. That matters because the fork has
+        already shipped one bug of exactly the forgetting kind --
+        apply_key_phase() gained fields it did not copy.
+
+        A TUPLE, not a hash. A hash collision would present as silent
+        staleness, which is the failure being eliminated. Tuple comparison
+        is exact, and the value is legible in a debugger.
+
+        Callers must treat it as opaque: compare for equality, do not
+        interpret. The contents will grow as the fork exposes more state.
+        """
+        # _cryptos is not populated until the handshake sets up 1-RTT, and
+        # this must be callable before then -- an accessor that raises
+        # would be a worse failure than the staleness it exists to
+        # prevent. None simply differs from any real phase, so the first
+        # post-handshake call registers as a change and everything is
+        # re-read, which is correct.
+        crypto = self._cryptos.get(tls.Epoch.ONE_RTT)
+        return (
+            crypto.send_key_phase() if crypto is not None else None,
+            self._peer_cid.cid,           # peer CID retirement/rotation
+            self._network_paths[0].addr if self._network_paths else None,
+        )
+
     def send_key_phase(self) -> int:
         """
         Phase of the 1-RTT send keys, as an opaque change counter.
