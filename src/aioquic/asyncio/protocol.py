@@ -38,6 +38,14 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
 
     def recv_keys(self):
         return self._quic.recv_keys()
+    def external_send_generation(self) -> tuple:
+        """
+        Opaque token covering the connection state an external sender
+        caches. Compare for equality; re-read everything on a change.
+        See :meth:`QuicConnection.external_send_generation`.
+        """
+        return self._quic.external_send_generation()
+
     def send_key_phase(self) -> int:
         """
         Phase of the 1-RTT send keys -- an opaque change counter for a
