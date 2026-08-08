@@ -157,6 +157,16 @@ def apply_key_phase(self: CryptoContext, crypto: CryptoContext, trigger: str) ->
     self.aead = crypto.aead
     self.key_phase = crypto.key_phase
     self.secret = crypto.secret
+    # The raw material too, not just the AEAD built from it. Encryption
+    # inside this library only ever goes through self.aead, so omitting
+    # these is invisible here -- but send_keys()/recv_keys() expose them
+    # for an external sender operating outside this connection, and that
+    # sender would go on protecting packets with keys the peer retired at
+    # this exact moment. Nothing fails locally; the peer simply cannot
+    # decrypt, which presents as sudden total loss rather than an error.
+    self.key = crypto.key
+    self.iv = crypto.iv
+    self.hp_raw = crypto.hp_raw
 
     # trigger callback
     self._setup_cb(trigger)
@@ -191,6 +201,17 @@ class CryptoPair:
 
     def send_keys(self):
         return (self.send.key, self.send.hp_raw, self.send.iv, self.send.cipher_suite)
+
+    def send_key_phase(self) -> int:
+        """
+        Phase of the keys send_keys() currently returns.
+
+        An external sender that caches the send keys needs this: the keys
+        themselves are opaque bytes, so there is no way to tell a fresh
+        copy from a stale one by looking at them. The phase changes
+        exactly when they do.
+        """
+        return self.send.key_phase
 
     def recv_keys(self):
         return (self.recv.key, self.recv.hp_raw, self.recv.iv, self.recv.cipher_suite)

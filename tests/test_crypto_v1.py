@@ -298,6 +298,51 @@ class CryptoTest(TestCase):
         )
         self.assertEqual(packet, SHORT_SERVER_ENCRYPTED_PACKET)
 
+    def test_key_update_refreshes_exported_key_material(self):
+        """send_keys()/recv_keys() must not return retired material.
+
+        Encryption inside this library goes through self.aead, so a key
+        update that swapped only the AEAD would look correct from in here
+        -- and did. But send_keys() exposes key/iv/hp_raw for a sender
+        operating outside this connection, and apply_key_phase() left
+        those three at their pre-update values.
+
+        Such a sender would go on protecting packets with keys the peer
+        retired at that instant. Nothing fails locally: the packets are
+        well-formed and accounted for. The peer simply cannot decrypt
+        them, which presents as sudden total loss rather than as an error.
+
+        Asserts every exported field rotates, not just the phase -- a test
+        that checked only the phase would have passed against the bug.
+        """
+        pair = self.create_crypto(is_client=True)
+
+        before = (
+            bytes(pair.send.key),
+            bytes(pair.send.iv),
+            bytes(pair.send.hp_raw),
+        )
+        phase_before = pair.send_key_phase()
+
+        pair._update_key("local_update")
+
+        after = (
+            bytes(pair.send.key),
+            bytes(pair.send.iv),
+            bytes(pair.send.hp_raw),
+        )
+        self.assertNotEqual(pair.send_key_phase(), phase_before)
+        self.assertNotEqual(after[0], before[0], "key must rotate")
+        self.assertNotEqual(after[1], before[1], "iv must rotate")
+        self.assertNotEqual(after[2], before[2], "hp_raw must rotate")
+
+        # And what send_keys() hands out must be the rotated material,
+        # since that is what an external sender actually consumes.
+        exported = pair.send_keys()
+        self.assertEqual(bytes(exported[0]), after[0])
+        self.assertEqual(bytes(exported[1]), after[2])
+        self.assertEqual(bytes(exported[2]), after[1])
+
     def test_key_update(self):
         pair1 = self.create_crypto(is_client=True)
         pair2 = self.create_crypto(is_client=False)
