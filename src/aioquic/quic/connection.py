@@ -1620,6 +1620,30 @@ class QuicConnection:
     def send_keys(self):
         return self._cryptos[tls.Epoch.ONE_RTT].send_keys()
 
+    def send_key_phase(self) -> int:
+        """
+        Phase of the 1-RTT send keys, as an opaque change counter.
+
+        For an external sender that caches the keys returned by
+        :meth:`send_keys` rather than re-reading them per packet. A 1-RTT
+        key update (RFC 9001 Section 6) retires those keys mid-connection,
+        and packets protected with retired keys are undecryptable to the
+        peer -- which from the sender's side looks like sudden total loss
+        rather than an error, since nothing local fails.
+
+        The keys are opaque bytes and reveal nothing about their own
+        freshness. Comparing this value against the phase held when the
+        keys were read is how a cache detects that it is stale.
+
+        Note this connection never initiates a key update on its own:
+        :meth:`request_key_update` is application-facing and nothing
+        inside the library calls it. A PEER may initiate one at any time
+        after the handshake, however, and that is handled unconditionally
+        -- so any caching sender must expect this to change even if the
+        local application never asks.
+        """
+        return self._cryptos[tls.Epoch.ONE_RTT].send_key_phase()
+
     def recv_keys(self):
         return self._cryptos[tls.Epoch.ONE_RTT].recv_keys()
 

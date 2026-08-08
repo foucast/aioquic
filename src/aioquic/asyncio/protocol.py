@@ -38,6 +38,14 @@ class QuicConnectionProtocol(asyncio.DatagramProtocol):
 
     def recv_keys(self):
         return self._quic.recv_keys()
+    def send_key_phase(self) -> int:
+        """
+        Phase of the 1-RTT send keys -- an opaque change counter for a
+        sender that caches them. See
+        :meth:`QuicConnection.send_key_phase`.
+        """
+        return self._quic.send_key_phase()
+
     def send_keys(self):
         return self._quic.send_keys()
     def packet_number(self):
