@@ -1776,6 +1776,28 @@ class QuicConnection:
             delivery_handlers=[(handler, handler_args)] if handler is not None else [],
         )
         self._loss.on_packet_sent(packet=packet, space=space)
+        # Drain the pacer for this send, exactly as _write_application()
+        # does for a packet this connection built itself.
+        #
+        # Without it, the pacer's token bucket never empties for bytes an
+        # external sender put on the wire, so it shows full credit no
+        # matter how much is in flight. This connection then paces its OWN
+        # sends -- ACKs, MAX_DATA, HEADERS, key updates -- as though the
+        # link were idle. Measured before this change: bucket_time equalled
+        # bucket_max in 55 of 55 samples across a whole transfer.
+        #
+        # Bookkeeping only, deliberately. This does NOT consult
+        # next_send_time() to decide WHEN the external sender may send;
+        # that is a scheduling decision and belongs to the external sender
+        # itself, which has its own rate policy. Draining without
+        # consulting is the conservative half: it can only make this
+        # connection's own pacing more accurate, never less.
+        #
+        # Proportion checked: foumaker reserves one packet number and calls
+        # this once per descriptor entry, and its foucaster emits exactly
+        # one datagram per entry. One packet number, one datagram, one
+        # drain -- no factor-of-N discount.
+        self._loss._pacer.update_after_send(now=now)
 
     def _handle_ack_frame(
         self, context: QuicReceiveContext, frame_type: int, buf: Buffer
